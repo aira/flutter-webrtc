@@ -126,6 +126,18 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
   }
 
   void dispose() {
+    for (final MediaStream mediaStream : localStreams.values()) {
+      streamDispose(mediaStream);
+      mediaStream.dispose();
+    }
+    localStreams.clear();
+    for (final MediaStreamTrack track : localTracks.values()) {
+      track.dispose();
+    }
+    localTracks.clear();
+    for (final PeerConnectionObserver connection : mPeerConnectionObservers.values()) {
+      peerConnectionDispose(connection);
+    }
     mPeerConnectionObservers.clear();
   }
 
@@ -422,6 +434,7 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
         int textureId = call.argument("textureId");
         String streamId = call.argument("streamId");
         String ownerTag = call.argument("ownerTag");
+        String trackId = call.argument("trackId");
         FlutterRTCVideoRenderer render = renders.get(textureId);
         if (render == null) {
           resultError("videoRendererSetSrcObject", "render [" + textureId + "] not found !", result);
@@ -433,7 +446,11 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
         } else {
           stream = getStreamForId(streamId, ownerTag);
         }
-        render.setStream(stream);
+        if (trackId != null && !trackId.equals("0")){
+          render.setStream(stream, trackId);
+        } else {
+          render.setStream(stream);
+        }
         result.success(null);
         break;
       }
@@ -959,7 +976,7 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
     }
     // cryptoOptions
     if (map.hasKey("cryptoOptions")
-          && map.getType("cryptoOptions") == ObjectType.Map) {
+            && map.getType("cryptoOptions") == ObjectType.Map) {
       final ConstraintsMap cryptoOptions = map.getMap("cryptoOptions");
       conf.cryptoOptions = CryptoOptions.builder()
               .setEnableGcmCryptoSuites(cryptoOptions.hasKey("enableGcmCryptoSuites") && cryptoOptions.getBoolean("enableGcmCryptoSuites"))
@@ -1142,7 +1159,7 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
       array.pushMap(audio);
     } else {
       android.media.AudioManager audioManager = ((android.media.AudioManager) context
-          .getSystemService(Context.AUDIO_SERVICE));
+              .getSystemService(Context.AUDIO_SERVICE));
       final AudioDeviceInfo[] devices = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS);
       for (int i = 0; i < devices.length; i++) {
         AudioDeviceInfo device = devices[i];
@@ -1523,7 +1540,11 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
     if (pco == null || pco.getPeerConnection() == null) {
       resultError("peerConnectionGetStats", "peerConnection is null", result);
     } else {
-      pco.getStats(trackId, result);
+      if(trackId == null || trackId.isEmpty()) {
+        pco.getStats(result);
+      } else {
+        pco.getStatsForTrack(trackId, result);
+      }
     }
   }
 
@@ -1547,35 +1568,51 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
 
   public void peerConnectionDispose(final String id) {
     PeerConnectionObserver pco = mPeerConnectionObservers.get(id);
-    if (pco == null || pco.getPeerConnection() == null) {
-      Log.d(TAG, "peerConnectionDispose() peerConnection is null");
+    if (pco != null) {
+      if (peerConnectionDispose(pco)) {
+
+        mPeerConnectionObservers.remove(id);
+      }
     } else {
-      pco.dispose();
-      mPeerConnectionObservers.remove(id);
+      Log.d(TAG, "peerConnectionDispose() peerConnectionObserver is null");
     }
     if (mPeerConnectionObservers.size() == 0) {
       audioSwitchManager.stop();
     }
   }
 
+  public boolean peerConnectionDispose(final PeerConnectionObserver pco) {
+    if (pco.getPeerConnection() == null) {
+      Log.d(TAG, "peerConnectionDispose() peerConnection is null");
+    } else {
+      pco.dispose();
+      return true;
+    }
+    return false;
+  }
+
   public void streamDispose(final String streamId) {
     MediaStream stream = localStreams.get(streamId);
     if (stream != null) {
-      List<VideoTrack> videoTracks = stream.videoTracks;
-      for (VideoTrack track : videoTracks) {
-        localTracks.remove(track.id());
-        getUserMediaImpl.removeVideoCapturer(track.id());
-        stream.removeTrack(track);
-      }
-      List<AudioTrack> audioTracks = stream.audioTracks;
-      for (AudioTrack track : audioTracks) {
-        localTracks.remove(track.id());
-        stream.removeTrack(track);
-      }
+      streamDispose(stream);
       localStreams.remove(streamId);
       removeStreamForRendererById(streamId);
     } else {
       Log.d(TAG, "streamDispose() mediaStream is null");
+    }
+  }
+
+  public void streamDispose(final MediaStream stream) {
+    List<VideoTrack> videoTracks = stream.videoTracks;
+    for (VideoTrack track : videoTracks) {
+      localTracks.remove(track.id());
+      getUserMediaImpl.removeVideoCapturer(track.id());
+      stream.removeTrack(track);
+    }
+    List<AudioTrack> audioTracks = stream.audioTracks;
+    for (AudioTrack track : audioTracks) {
+      localTracks.remove(track.id());
+      stream.removeTrack(track);
     }
   }
 
@@ -1772,7 +1809,7 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
     PeerConnectionObserver pco = mPeerConnectionObservers.get(peerConnectionId);
     if (pco == null || pco.getPeerConnection() == null) {
       resultError("rtpSenderSetTrack", "peerConnection is null", result);
-    } else {      
+    } else {
       MediaStreamTrack track = null;
       if (trackId.length() > 0) {
         track = localTracks.get(trackId);
