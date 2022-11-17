@@ -17,6 +17,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
@@ -325,6 +326,10 @@ class GetUserMediaImpl {
     }
 
     private AudioTrack getUserAudio(ConstraintsMap constraints) {
+        // https://github.com/flutter-webrtc/flutter-webrtc/issues/809#issuecomment-994607194.
+        AudioManager audioManager = (AudioManager) applicationContext.getSystemService(Context.AUDIO_SERVICE);
+        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+
         MediaConstraints audioConstraints;
         if (constraints.getType("audio") == ObjectType.Boolean) {
             audioConstraints = new MediaConstraints();
