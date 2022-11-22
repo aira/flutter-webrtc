@@ -10,19 +10,26 @@
     // this method is called
     RTCAudioSessionConfiguration *config = [RTCAudioSessionConfiguration webRTCConfiguration];
     // require audio session to be either PlayAndRecord or MultiRoute
-    if (recording && session.category != AVAudioSessionCategoryPlayAndRecord &&
-        session.category != AVAudioSessionCategoryMultiRoute) {
-        config.category = AVAudioSessionCategoryPlayAndRecord;
-        config.categoryOptions = AVAudioSessionCategoryOptionAllowBluetooth |
-        AVAudioSessionCategoryOptionAllowBluetoothA2DP;
-        config.mode = AVAudioSessionModeVoiceChat;
-        
-        [session lockForConfiguration];
-        [session setCategory:config.category
-                 withOptions:config.categoryOptions
-                       error:nil];
-        [session setMode:config.mode error:nil];
-        [session unlockForConfiguration];
+    if (recording) {
+        if (session.category != AVAudioSessionCategoryPlayAndRecord &&
+                session.category != AVAudioSessionCategoryMultiRoute) {
+            config.category = AVAudioSessionCategoryPlayAndRecord;
+            config.categoryOptions = AVAudioSessionCategoryOptionAllowBluetooth |
+                AVAudioSessionCategoryOptionAllowBluetoothA2DP;
+            config.mode = AVAudioSessionModeVoiceChat;
+
+            [session lockForConfiguration];
+            [session setCategory:config.category
+                     withOptions:config.categoryOptions
+                           error:nil];
+            [session setMode:config.mode error:nil];
+            [session unlockForConfiguration];
+        } else {
+            // If the audio session was pre-configured, update the WebRTC configuration to match.
+            config.category = session.category;
+            config.categoryOptions = session.categoryOptions;
+            config.mode = session.mode;
+        }
     } else if (!recording && (session.category == AVAudioSessionCategoryAmbient
                               || session.category == AVAudioSessionCategorySoloAmbient)) {
         config.category = AVAudioSessionCategoryPlayback;
@@ -63,7 +70,6 @@
 
 + (void)setSpeakerphoneOn:(BOOL)enable {
     RTCAudioSession *session = [RTCAudioSession sharedInstance];
-    RTCAudioSessionConfiguration *config = [RTCAudioSessionConfiguration webRTCConfiguration];
     [session lockForConfiguration];
     NSError *error = nil;
     if(!enable) {
