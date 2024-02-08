@@ -80,6 +80,10 @@ import java.util.List;
 import java.util.Map;
 
 import io.flutter.plugin.common.MethodChannel.Result;
+import com.cloudwebrtc.webrtc.MediaProjectionForegroundService;
+import com.cloudwebrtc.webrtc.MediaProjectionService;
+import android.content.pm.ResolveInfo;
+import android.content.ComponentName;
 
 /**
  * The implementation of {@code getUserMedia} extracted into a separate file in order to reduce
@@ -144,7 +148,6 @@ class GetUserMediaImpl {
     }
 
     public static class ScreenRequestPermissionsFragment extends Fragment {
-
         private ResultReceiver resultReceiver = null;
         private int requestCode = 0;
         private final int resultCode = 0;
@@ -166,6 +169,7 @@ class GetUserMediaImpl {
                         "Can't run requestStart() due to a low API level. API level 21 or higher is required.");
                 return;
             } else {
+                System.out.println(">>>>> requesting media projection");
                 MediaProjectionManager mediaProjectionManager =
                         (MediaProjectionManager) activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
@@ -186,6 +190,7 @@ class GetUserMediaImpl {
                 resultData.putString(PERMISSIONS, PERMISSION_SCREEN);
                 resultData.putInt(GRANT_RESULTS, resultCode);
                 resultReceiver.send(requestCode, resultData);
+                System.out.println(">>>>> media projection permission denied");
                 return;
             }
             Bundle resultData = new Bundle();
@@ -193,6 +198,7 @@ class GetUserMediaImpl {
             resultData.putInt(GRANT_RESULTS, resultCode);
             resultData.putParcelable(PROJECTION_DATA, data);
             resultReceiver.send(requestCode, resultData);
+            System.out.println(">>>>> media projection permission granted");
             finish();
         }
 
@@ -489,6 +495,13 @@ class GetUserMediaImpl {
                             return;
                         }
 
+                        startMediaProjectionService();
+                        try {
+                            Thread.sleep(3000);
+                        } catch(InterruptedException e) {
+                            System.out.println(">>>>>> oooops! not sleeping! " + e);
+                        }
+
                         MediaStreamTrack[] tracks = new MediaStreamTrack[1];
                         VideoCapturer videoCapturer = null;
                         videoCapturer =
@@ -498,7 +511,7 @@ class GetUserMediaImpl {
                                             @Override
                                             public void onStop() {
                                                 super.onStop();
-                                                // After Huawei P30 and Android 10 version test, the onstop method is called, which will not affect the next process, 
+                                                // After Huawei P30 and Android 10 version test, the onstop method is called, which will not affect the next process,
                                                 // and there is no need to call the resulterror method
                                                 //resultError("MediaProjection.Callback()", "User revoked permission to capture the screen.", result);
                                             }
@@ -820,7 +833,64 @@ class GetUserMediaImpl {
     void removeVideoCapturer(String id) {
         new Thread(() -> {
             removeVideoCapturerSync(id);
+            stopMediaProjectionService();
         }).start();
+    }
+
+    private boolean isMediaProjectionRunning() {
+        return mVideoCapturers.values().stream().anyMatch(info -> info.isScreenCapture);
+    }
+
+    private boolean thisCanReceiveIntent(Intent serviceIntent) {
+        System.out.println(">>>>> thisCanReceiveIntent check");
+        for(ResolveInfo queryResult: (applicationContext.getPackageManager().queryIntentServices(serviceIntent, 0))){
+            System.out.println(">>>>> queryResult: " + queryResult.serviceInfo.name + " == " + MediaProjectionService.class.getName() + " - " + queryResult.serviceInfo.packageName + " == " + applicationContext.getPackageName());
+            if(MediaProjectionService.class.getName().equals(queryResult.serviceInfo.name)
+                && applicationContext.getPackageName().equals(queryResult.serviceInfo.packageName)){
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void startMediaProjectionService() {
+        System.out.println(">>>>> startMediaProjectionService check");
+        if (isMediaProjectionRunning()) {
+            return; // no need to start the media projection service as it's already running
+        }
+        System.out.println(">>>>> startMediaProjectionService 1");
+
+//        Intent intent = new Intent(applicationContext, MediaProjectionForegroundService.class);
+        Intent intent = new Intent(applicationContext, MediaProjectionService.class);
+        intent.putExtra("notificationTitle", applicationContext.getApplicationInfo().name);
+        intent.putExtra("notificationText", "Recording screen...");
+
+        if (!thisCanReceiveIntent(intent)) {
+            System.out.println(">>>>> should not start service");
+        }
+
+        ComponentName componentName;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            componentName = applicationContext.startForegroundService(intent);
+        } else {
+            componentName = applicationContext.startService(intent);
+        }
+
+        if (null == componentName) {
+            System.out.println(">>>>> failed to start service");
+        }
+
+        System.out.println(">>>>> startMediaProjectionService 2 " + componentName.getClassName());
+    }
+
+    void stopMediaProjectionService() {
+        System.out.println(">>>>> stopMediaProjectionService check");
+        if (isMediaProjectionRunning()) {
+            System.out.println(">>>>> stopMediaProjectionService");
+//            Intent mediaProjectionServiceIntent = new Intent(applicationContext, MediaProjectionForegroundService.class);
+            Intent mediaProjectionServiceIntent = new Intent(applicationContext, MediaProjectionService.class);
+            applicationContext.stopService(mediaProjectionServiceIntent);
+        }
     }
 
     @RequiresApi(api = VERSION_CODES.M)
